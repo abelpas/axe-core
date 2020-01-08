@@ -1,5 +1,5 @@
 /*! axe v3.4.1
- * Copyright (c) 2019 Deque Systems, Inc.
+ * Copyright (c) 2020 Deque Systems, Inc.
  *
  * Your use of this Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -31303,8 +31303,12 @@
 					messages: {
 						pass:
 							'List element only has direct children that are allowed inside <li> elements',
-						fail:
-							'List element has direct children that are not allowed inside <li> elements'
+						fail: {
+							default:
+								'List element has direct children that are not allowed inside <li> elements',
+							roleNotValid:
+								'List element has direct children with a role that is not allowed: ${data.roles}'
+						}
 					}
 				},
 				listitem: {
@@ -33117,7 +33121,7 @@
 				id: 'meta-viewport',
 				selector: 'meta[name="viewport"]',
 				excludeHidden: false,
-				tags: ['cat.sensory-and-visual-cues', 'wcag2aa', 'wcag144'],
+				tags: ['cat.sensory-and-visual-cues', 'best-practice'],
 				all: [],
 				any: [
 					{
@@ -33851,8 +33855,8 @@
 							return false;
 						}
 
-						var implicit = implicitNodes(role),
-							selector = ['[role="' + role + '"]'];
+						var implicit = implicitNodes(role);
+						var selector = ['[role="' + role + '"]'];
 
 						if (implicit) {
 							selector = selector.concat(
@@ -33870,16 +33874,16 @@
 					}
 
 					function ariaOwns(nodes, role) {
-						var index, length;
+						for (var index = 0; index < nodes.length; index++) {
+							var _node = nodes[index];
 
-						for (index = 0, length = nodes.length; index < length; index++) {
-							if (nodes[index] === null) {
+							if (_node === null) {
 								continue;
 							}
 
-							var virtualTree = axe.utils.getNodeFromTree(nodes[index]);
+							var virtualTree = axe.utils.getNodeFromTree(_node);
 
-							if (owns(nodes[index], virtualTree, role, true)) {
+							if (owns(_node, virtualTree, role, true)) {
 								return true;
 							}
 						}
@@ -33888,12 +33892,10 @@
 					}
 
 					function missingRequiredChildren(node, childRoles, all, role) {
-						var index,
-							length = childRoles.length,
-							missing = [],
+						var missing = [],
 							ownedElements = idrefs(node, 'aria-owns');
 
-						for (index = 0; index < length; index++) {
+						for (var index = 0; index < childRoles.length; index++) {
 							var childRole = childRoles[index];
 
 							if (
@@ -33923,13 +33925,31 @@
 								ariaOwns(ownedElements, 'searchbox')
 							) {
 								missing.splice(textboxIndex, 1);
-							} // remove 'listbox' from missing roles if combobox is collapsed
+							}
 
-							var listboxIndex = missing.indexOf('listbox');
-							var expanded = node.getAttribute('aria-expanded');
+							var expandedChildRoles = ['listbox', 'tree', 'grid', 'dialog'];
+							var expandedValue = node.getAttribute('aria-expanded');
+							var expanded = expandedValue && expandedValue !== 'false';
+							var popupRole = (
+								node.getAttribute('aria-haspopup') || 'listbox'
+							).toLowerCase();
 
-							if (listboxIndex >= 0 && (!expanded || expanded === 'false')) {
-								missing.splice(listboxIndex, 1);
+							for (
+								var _index = 0;
+								_index < expandedChildRoles.length;
+								_index++
+							) {
+								var expandedChildRole = expandedChildRoles[_index]; // keep the specified popup type required if expanded
+
+								if (expanded && expandedChildRole === popupRole) {
+									continue;
+								} // remove 'listbox' and company from missing roles if combobox is collapsed
+
+								var missingIndex = missing.indexOf(expandedChildRole);
+
+								if (missingIndex >= 0) {
+									missing.splice(missingIndex, 1);
+								}
 							}
 						}
 
@@ -33968,7 +33988,7 @@
 					var childRoles = required.one;
 
 					if (!childRoles) {
-						var all = true;
+						all = true;
 						childRoles = required.all;
 					}
 
@@ -35735,91 +35755,70 @@
 			{
 				id: 'only-listitems',
 				evaluate: function evaluate(node, options, virtualNode, context) {
-					var dom = axe.commons.dom;
-
-					var getIsListItemRole = function getIsListItemRole(role, tagName) {
-						return role === 'listitem' || (tagName === 'LI' && !role);
-					};
-
-					var getHasListItem = function getHasListItem(
-						hasListItem,
-						tagName,
-						isListItemRole
-					) {
-						return (
-							hasListItem ||
-							(tagName === 'LI' && isListItemRole) ||
-							isListItemRole
-						);
-					};
-
-					var base = {
-						badNodes: [],
-						isEmpty: true,
-						hasNonEmptyTextNode: false,
-						hasListItem: false,
-						liItemsWithRole: 0
-					};
-					var out = virtualNode.children.reduce(function(out, _ref6) {
-						var actualNode = _ref6.actualNode;
-						var tagName = actualNode.nodeName.toUpperCase();
+					var _axe$commons14 = axe.commons,
+						dom = _axe$commons14.dom,
+						aria = _axe$commons14.aria;
+					var hasNonEmptyTextNode = false;
+					var atLeastOneListitem = false;
+					var isEmpty = true;
+					var badNodes = [];
+					var badRoleNodes = [];
+					var badRoles = [];
+					virtualNode.children.forEach(function(vNode) {
+						var actualNode = vNode.actualNode;
 
 						if (
-							actualNode.nodeType === 1 &&
-							dom.isVisible(actualNode, true, false)
+							actualNode.nodeType === 3 &&
+							actualNode.nodeValue.trim() !== ''
 						) {
-							var role = (actualNode.getAttribute('role') || '').toLowerCase();
-							var isListItemRole = getIsListItemRole(role, tagName);
-							out.hasListItem = getHasListItem(
-								out.hasListItem,
-								tagName,
-								isListItemRole
-							);
+							hasNonEmptyTextNode = true;
+							return;
+						}
 
-							if (isListItemRole) {
-								out.isEmpty = false;
-							}
+						if (
+							actualNode.nodeType !== 1 ||
+							!dom.isVisible(actualNode, true, false)
+						) {
+							return;
+						}
 
-							if (tagName === 'LI' && !isListItemRole) {
-								out.liItemsWithRole++;
-							}
+						isEmpty = false;
+						var isLi = actualNode.nodeName.toUpperCase() === 'LI';
+						var role = aria.getRole(vNode);
+						var isListItemRole = role === 'listitem';
 
-							if (tagName !== 'LI' && !isListItemRole) {
-								out.badNodes.push(actualNode);
+						if (!isLi && !isListItemRole) {
+							badNodes.push(actualNode);
+						}
+
+						if (isLi && !isListItemRole) {
+							badRoleNodes.push(actualNode);
+
+							if (!badRoles.includes(role)) {
+								badRoles.push(role);
 							}
 						}
 
-						if (actualNode.nodeType === 3) {
-							if (actualNode.nodeValue.trim() !== '') {
-								out.hasNonEmptyTextNode = true;
-							}
+						if (isListItemRole) {
+							atLeastOneListitem = true;
 						}
+					});
 
-						return out;
-					}, base);
-					var virtualNodeChildrenOfTypeLi = virtualNode.children.filter(
-						function(_ref7) {
-							var actualNode = _ref7.actualNode;
-							return actualNode.nodeName.toUpperCase() === 'LI';
-						}
-					);
-					var allLiItemsHaveRole =
-						out.liItemsWithRole > 0 &&
-						virtualNodeChildrenOfTypeLi.length === out.liItemsWithRole;
-
-					if (out.badNodes.length) {
-						this.relatedNodes(out.badNodes);
+					if (hasNonEmptyTextNode || badNodes.length) {
+						this.relatedNodes(badNodes);
+						return true;
 					}
 
-					var isInvalidListItem = !(
-						out.hasListItem ||
-						(out.isEmpty && !allLiItemsHaveRole)
-					);
-					return (
-						isInvalidListItem ||
-						!!out.badNodes.length ||
-						out.hasNonEmptyTextNode
-					);
+					if (isEmpty || atLeastOneListitem) {
+						return false;
+					}
+
+					this.relatedNodes(badRoleNodes);
+					this.data({
+						messageKey: 'roleNotValid',
+						roles: badRoles.join(', ')
+					});
+					return true;
 				}
 			},
 			{
@@ -35858,8 +35857,8 @@
 				id: 'caption',
 				evaluate: function evaluate(node, options, virtualNode, context) {
 					var tracks = axe.utils.querySelectorAll(virtualNode, 'track');
-					var hasCaptions = tracks.some(function(_ref8) {
-						var actualNode = _ref8.actualNode;
+					var hasCaptions = tracks.some(function(_ref6) {
+						var actualNode = _ref6.actualNode;
 						return (
 							(actualNode.getAttribute('kind') || '').toLowerCase() ===
 							'captions'
@@ -35873,8 +35872,8 @@
 				id: 'description',
 				evaluate: function evaluate(node, options, virtualNode, context) {
 					var tracks = axe.utils.querySelectorAll(virtualNode, 'track');
-					var hasDescriptions = tracks.some(function(_ref9) {
-						var actualNode = _ref9.actualNode;
+					var hasDescriptions = tracks.some(function(_ref7) {
+						var actualNode = _ref7.actualNode;
 						return (
 							(actualNode.getAttribute('kind') || '').toLowerCase() ===
 							'descriptions'
@@ -35963,9 +35962,9 @@
 					 * @param {HTMLMediaElement} elm media element
 					 */
 
-					function getPlayableDuration(_ref10) {
-						var currentSrc = _ref10.currentSrc,
-							duration = _ref10.duration;
+					function getPlayableDuration(_ref8) {
+						var currentSrc = _ref8.currentSrc,
+							duration = _ref8.duration;
 						var playbackRange = getPlaybackRange(currentSrc);
 
 						if (!playbackRange) {
@@ -36037,14 +36036,14 @@
 				id: 'css-orientation-lock',
 				evaluate: function evaluate(node, options, virtualNode, context) {
 					/* global context */
-					var _ref11 = context || {},
-						_ref11$cssom = _ref11.cssom,
-						cssom = _ref11$cssom === void 0 ? undefined : _ref11$cssom;
+					var _ref9 = context || {},
+						_ref9$cssom = _ref9.cssom,
+						cssom = _ref9$cssom === void 0 ? undefined : _ref9$cssom;
 
-					var _ref12 = options || {},
-						_ref12$degreeThreshol = _ref12.degreeThreshold,
+					var _ref10 = options || {},
+						_ref10$degreeThreshol = _ref10.degreeThreshold,
 						degreeThreshold =
-							_ref12$degreeThreshol === void 0 ? 0 : _ref12$degreeThreshol;
+							_ref10$degreeThreshol === void 0 ? 0 : _ref10$degreeThreshol;
 
 					if (!cssom || !cssom.length) {
 						return undefined;
@@ -36065,8 +36064,8 @@
 							return 'continue';
 						}
 
-						orientationRules.forEach(function(_ref18) {
-							var cssRules = _ref18.cssRules;
+						orientationRules.forEach(function(_ref16) {
+							var cssRules = _ref16.cssRules;
 							Array.from(cssRules).forEach(function(cssRule) {
 								var locked = getIsOrientationLocked(cssRule); // if locked and not root HTML, preserve as relatedNodes
 
@@ -36109,10 +36108,10 @@
 					 */
 
 					function groupCssomByDocument(cssObjectModel) {
-						return cssObjectModel.reduce(function(out, _ref13) {
-							var sheet = _ref13.sheet,
-								root = _ref13.root,
-								shadowId = _ref13.shadowId;
+						return cssObjectModel.reduce(function(out, _ref11) {
+							var sheet = _ref11.sheet,
+								root = _ref11.root,
+								shadowId = _ref11.shadowId;
 							var key = shadowId ? shadowId : 'topDocument';
 
 							if (!out[key]) {
@@ -36137,9 +36136,9 @@
 					 * @returns {Array<Object>}
 					 */
 
-					function isMediaRuleWithOrientation(_ref14) {
-						var type = _ref14.type,
-							cssText = _ref14.cssText;
+					function isMediaRuleWithOrientation(_ref12) {
+						var type = _ref12.type,
+							cssText = _ref12.cssText;
 
 						/**
 						 * Filter:
@@ -36167,9 +36166,9 @@
 					 * @return {Boolean}
 					 */
 
-					function getIsOrientationLocked(_ref15) {
-						var selectorText = _ref15.selectorText,
-							style = _ref15.style;
+					function getIsOrientationLocked(_ref13) {
+						var selectorText = _ref13.selectorText,
+							style = _ref13.style;
 
 						if (!selectorText || style.length <= 0) {
 							return false;
@@ -36265,9 +36264,9 @@
 					 */
 
 					function getAngleInDegrees(angleWithUnit) {
-						var _ref16 = angleWithUnit.match(/(deg|grad|rad|turn)/) || [],
-							_ref17 = _slicedToArray(_ref16, 1),
-							unit = _ref17[0];
+						var _ref14 = angleWithUnit.match(/(deg|grad|rad|turn)/) || [],
+							_ref15 = _slicedToArray(_ref14, 1),
+							unit = _ref15[0];
 
 						if (!unit) {
 							return;
@@ -36516,9 +36515,9 @@
 					/**
 					 * Note: `identical-links-same-purpose-after` fn, helps reconcile the results
 					 */
-					var _axe$commons14 = axe.commons,
-						dom = _axe$commons14.dom,
-						text = _axe$commons14.text;
+					var _axe$commons15 = axe.commons,
+						dom = _axe$commons15.dom,
+						text = _axe$commons15.text;
 					var accText = text.accessibleTextVirtual(virtualNode);
 					var name = text
 						.sanitize(
@@ -36630,8 +36629,8 @@
 							return nameMap[expectedName];
 						}
 
-						var nodes = afterResults.filter(function(_ref19, index) {
-							var data = _ref19.data;
+						var nodes = afterResults.filter(function(_ref17, index) {
+							var data = _ref17.data;
 							var name = data.name;
 							return index !== excludeIndex && name === expectedName;
 						});
@@ -36647,8 +36646,8 @@
 					 */
 
 					function isIdenticalResource(expectedResource, identicalNodes) {
-						return identicalNodes.every(function(_ref20) {
-							var data = _ref20.data;
+						return identicalNodes.every(function(_ref18) {
+							var data = _ref18.data;
 							var parsedResource = data.parsedResource;
 
 							if (!parsedResource) {
@@ -36834,9 +36833,9 @@
 			{
 				id: 'region',
 				evaluate: function evaluate(node, options, virtualNode, context) {
-					var _axe$commons15 = axe.commons,
-						dom = _axe$commons15.dom,
-						aria = _axe$commons15.aria;
+					var _axe$commons16 = axe.commons,
+						dom = _axe$commons16.dom,
+						aria = _axe$commons16.aria;
 					var landmarkRoles = aria.getRolesByType('landmark'); // Create a list of nodeNames that have a landmark as an implicit role
 
 					var implicitLandmarks = landmarkRoles
@@ -36906,8 +36905,8 @@
 							return [node]; // Recursively look at all child elements
 						} else {
 							return virtualNode.children
-								.filter(function(_ref21) {
-									var actualNode = _ref21.actualNode;
+								.filter(function(_ref19) {
+									var actualNode = _ref19.actualNode;
 									return actualNode.nodeType === 1;
 								})
 								.map(findRegionlessElms)
@@ -37192,8 +37191,8 @@
 							return nameMap[expectedName];
 						}
 
-						var nodes = afterResults.filter(function(_ref22, index) {
-							var data = _ref22.data;
+						var nodes = afterResults.filter(function(_ref20, index) {
+							var data = _ref20.data;
 							var name = data.name;
 							return index !== excludeIndex && name === expectedName;
 						});
@@ -37214,8 +37213,8 @@
 						expectedResourceFrameTitle,
 						identicalNodes
 					) {
-						return identicalNodes.every(function(_ref23) {
-							var data = _ref23.data;
+						return identicalNodes.every(function(_ref21) {
+							var data = _ref21.data;
 							var parsedResource = data.parsedResource,
 								resourceFrameTitle = data.resourceFrameTitle;
 
@@ -37235,8 +37234,12 @@
 
 							var nonMatchingKeys = [];
 
-							for (var _index = 0; _index < keysWithValues.length; _index++) {
-								var key = keysWithValues[_index];
+							for (
+								var _index2 = 0;
+								_index2 < keysWithValues.length;
+								_index2++
+							) {
+								var key = keysWithValues[_index2];
 								var actual = parsedResource[key];
 								var expected = expectedResource[key];
 
@@ -37388,18 +37391,18 @@
 			{
 				id: 'aria-label',
 				evaluate: function evaluate(node, options, virtualNode, context) {
-					var _axe$commons16 = axe.commons,
-						text = _axe$commons16.text,
-						aria = _axe$commons16.aria;
+					var _axe$commons17 = axe.commons,
+						text = _axe$commons17.text,
+						aria = _axe$commons17.aria;
 					return !!text.sanitize(aria.arialabelText(virtualNode));
 				}
 			},
 			{
 				id: 'aria-labelledby',
 				evaluate: function evaluate(node, options, virtualNode, context) {
-					var _axe$commons17 = axe.commons,
-						text = _axe$commons17.text,
-						aria = _axe$commons17.aria;
+					var _axe$commons18 = axe.commons,
+						text = _axe$commons18.text,
+						aria = _axe$commons18.aria;
 					return !!text.sanitize(aria.arialabelledbyText(node));
 				}
 			},
@@ -37577,8 +37580,8 @@
 			{
 				id: 'svg-non-empty-title',
 				evaluate: function evaluate(node, options, virtualNode, context) {
-					var title = virtualNode.children.find(function(_ref24) {
-						var props = _ref24.props;
+					var title = virtualNode.children.find(function(_ref22) {
+						var props = _ref22.props;
 						return props.nodeName === 'title';
 					});
 					return !!title && title.actualNode.textContent.trim() !== '';
@@ -37998,7 +38001,9 @@
 					unstandardized: true
 				},
 				'aria-details': {
-					unsupported: true
+					type: 'idref',
+					allowEmpty: true,
+					unsupported: false
 				},
 				'aria-disabled': {
 					type: 'boolean',
@@ -38187,6 +38192,7 @@
 				'aria-controls',
 				'aria-current',
 				'aria-describedby',
+				'aria-details',
 				'aria-disabled',
 				'aria-dropeffect',
 				'aria-flowto',
@@ -38369,7 +38375,7 @@
 						required: ['aria-expanded']
 					},
 					owned: {
-						all: ['listbox', 'textbox']
+						all: ['listbox', 'tree', 'grid', 'dialog', 'textbox']
 					},
 					nameFrom: ['author'],
 					context: null,
@@ -40238,9 +40244,9 @@
 				}
 			];
 			lookupTable.evaluateRoleForElement = {
-				A: function A(_ref25) {
-					var node = _ref25.node,
-						out = _ref25.out;
+				A: function A(_ref23) {
+					var node = _ref23.node,
+						out = _ref23.out;
 
 					if (node.namespaceURI === 'http://www.w3.org/2000/svg') {
 						return true;
@@ -40252,14 +40258,14 @@
 
 					return true;
 				},
-				AREA: function AREA(_ref26) {
-					var node = _ref26.node;
+				AREA: function AREA(_ref24) {
+					var node = _ref24.node;
 					return !node.href;
 				},
-				BUTTON: function BUTTON(_ref27) {
-					var node = _ref27.node,
-						role = _ref27.role,
-						out = _ref27.out;
+				BUTTON: function BUTTON(_ref25) {
+					var node = _ref25.node,
+						role = _ref25.role,
+						out = _ref25.out;
 
 					if (node.getAttribute('type') === 'menu') {
 						return role === 'menuitem';
@@ -40267,10 +40273,10 @@
 
 					return out;
 				},
-				IMG: function IMG(_ref28) {
-					var node = _ref28.node,
-						role = _ref28.role,
-						out = _ref28.out;
+				IMG: function IMG(_ref26) {
+					var node = _ref26.node,
+						role = _ref26.role,
+						out = _ref26.out;
 
 					switch (node.alt) {
 						case null:
@@ -40283,10 +40289,10 @@
 							return role !== 'presentation' && role !== 'none';
 					}
 				},
-				INPUT: function INPUT(_ref29) {
-					var node = _ref29.node,
-						role = _ref29.role,
-						out = _ref29.out;
+				INPUT: function INPUT(_ref27) {
+					var node = _ref27.node,
+						role = _ref27.role,
+						out = _ref27.out;
 
 					switch (node.type) {
 						case 'button':
@@ -40320,9 +40326,9 @@
 							return false;
 					}
 				},
-				LI: function LI(_ref30) {
-					var node = _ref30.node,
-						out = _ref30.out;
+				LI: function LI(_ref28) {
+					var node = _ref28.node,
+						out = _ref28.out;
 					var hasImplicitListitemRole = axe.utils.matchesSelector(
 						node,
 						'ol li, ul li'
@@ -40334,8 +40340,8 @@
 
 					return true;
 				},
-				MENU: function MENU(_ref31) {
-					var node = _ref31.node;
+				MENU: function MENU(_ref29) {
+					var node = _ref29.node;
 
 					if (node.getAttribute('type') === 'context') {
 						return false;
@@ -40343,22 +40349,22 @@
 
 					return true;
 				},
-				OPTION: function OPTION(_ref32) {
-					var node = _ref32.node;
+				OPTION: function OPTION(_ref30) {
+					var node = _ref30.node;
 					var withinOptionList = axe.utils.matchesSelector(
 						node,
 						'select > option, datalist > option, optgroup > option'
 					);
 					return !withinOptionList;
 				},
-				SELECT: function SELECT(_ref33) {
-					var node = _ref33.node,
-						role = _ref33.role;
+				SELECT: function SELECT(_ref31) {
+					var node = _ref31.node,
+						role = _ref31.role;
 					return !node.multiple && node.size <= 1 && role === 'menu';
 				},
-				SVG: function SVG(_ref34) {
-					var node = _ref34.node,
-						out = _ref34.out;
+				SVG: function SVG(_ref32) {
+					var node = _ref32.node,
+						out = _ref32.out;
 
 					// if in svg context it all roles may be used
 					if (
@@ -40765,9 +40771,9 @@
 			 * @return {VirtualNode[]} Owned elements
 			 */
 
-			aria.getOwnedVirtual = function getOwned(_ref35) {
-				var actualNode = _ref35.actualNode,
-					children = _ref35.children;
+			aria.getOwnedVirtual = function getOwned(_ref33) {
+				var actualNode = _ref33.actualNode,
+					children = _ref33.children;
 
 				if (!actualNode || !children) {
 					throw new Error('getOwnedVirtual requires a virtual node');
@@ -40804,14 +40810,14 @@
 			 */
 
 			aria.getRole = function getRole(node) {
-				var _ref36 =
+				var _ref34 =
 						arguments.length > 1 && arguments[1] !== undefined
 							? arguments[1]
 							: {},
-					noImplicit = _ref36.noImplicit,
-					fallback = _ref36.fallback,
-					abstracts = _ref36.abstracts,
-					dpub = _ref36.dpub;
+					noImplicit = _ref34.noImplicit,
+					fallback = _ref34.fallback,
+					abstracts = _ref34.abstracts,
+					dpub = _ref34.dpub;
 
 				node = node.actualNode || node;
 
@@ -40974,8 +40980,8 @@
 			 * @return {Mixed}  String of visible text, or `null` if no label is found
 			 */
 
-			aria.labelVirtual = function(_ref37) {
-				var actualNode = _ref37.actualNode;
+			aria.labelVirtual = function(_ref35) {
+				var actualNode = _ref35.actualNode;
 				var ref, candidate;
 
 				if (actualNode.getAttribute('aria-labelledby')) {
@@ -41031,11 +41037,11 @@
 			 */
 
 			aria.namedFromContents = function namedFromContents(node) {
-				var _ref38 =
+				var _ref36 =
 						arguments.length > 1 && arguments[1] !== undefined
 							? arguments[1]
 							: {},
-					strict = _ref38.strict;
+					strict = _ref36.strict;
 
 				node = node.actualNode || node;
 
@@ -41079,14 +41085,14 @@
 			 */
 
 			aria.isValidRole = function(role) {
-				var _ref39 =
+				var _ref37 =
 						arguments.length > 1 && arguments[1] !== undefined
 							? arguments[1]
 							: {},
-					allowAbstract = _ref39.allowAbstract,
-					_ref39$flagUnsupporte = _ref39.flagUnsupported,
+					allowAbstract = _ref37.allowAbstract,
+					_ref37$flagUnsupporte = _ref37.flagUnsupported,
 					flagUnsupported =
-						_ref39$flagUnsupporte === void 0 ? false : _ref39$flagUnsupporte;
+						_ref37$flagUnsupporte === void 0 ? false : _ref37$flagUnsupporte;
 
 				var roleDefinition = aria.lookupTable.role[role];
 				var isRoleUnsupported = roleDefinition
@@ -42369,12 +42375,12 @@
 			 * @return {Array<Node>}
 			 */
 
-			dom.findElmsInContext = function(_ref40) {
-				var context = _ref40.context,
-					value = _ref40.value,
-					attr = _ref40.attr,
-					_ref40$elm = _ref40.elm,
-					elm = _ref40$elm === void 0 ? '' : _ref40$elm;
+			dom.findElmsInContext = function(_ref38) {
+				var context = _ref38.context,
+					value = _ref38.value,
+					attr = _ref38.attr,
+					_ref38$elm = _ref38.elm,
+					elm = _ref38$elm === void 0 ? '' : _ref38$elm;
 				var root;
 				var escapedValue = axe.utils.escapeSelector(value);
 
@@ -43266,8 +43272,8 @@
 
 			function hasChildTextNodes(elm) {
 				if (!hiddenTextElms.includes(elm.actualNode.nodeName.toUpperCase())) {
-					return elm.children.some(function(_ref41) {
-						var actualNode = _ref41.actualNode;
+					return elm.children.some(function(_ref39) {
+						var actualNode = _ref39.actualNode;
 						return actualNode.nodeType === 3 && actualNode.nodeValue.trim();
 					});
 				}
@@ -44471,11 +44477,11 @@
 			 */
 
 			matches.nodeName = function matchNodeName(node, matcher) {
-				var _ref42 =
+				var _ref40 =
 						arguments.length > 2 && arguments[2] !== undefined
 							? arguments[2]
 							: {},
-					isXHTML = _ref42.isXHTML;
+					isXHTML = _ref40.isXHTML;
 
 				node = node.actualNode || node;
 
@@ -45197,8 +45203,8 @@
 			 * @return {String} textContent value
 			 */
 
-			function textNodeContent(_ref43) {
-				var actualNode = _ref43.actualNode;
+			function textNodeContent(_ref41) {
+				var actualNode = _ref41.actualNode;
 
 				if (actualNode.nodeType !== 3) {
 					return '';
@@ -45214,8 +45220,8 @@
 			 * @return {Boolean}
 			 */
 
-			function shouldIgnoreHidden(_ref44, context) {
-				var actualNode = _ref44.actualNode;
+			function shouldIgnoreHidden(_ref42, context) {
+				var actualNode = _ref42.actualNode;
 
 				if (
 					// If the parent isn't ignored, the text node should not be either
@@ -45830,24 +45836,24 @@
 			text.autocomplete = autocomplete;
 
 			text.isValidAutocomplete = function isValidAutocomplete(autocomplete) {
-				var _ref45 =
+				var _ref43 =
 						arguments.length > 1 && arguments[1] !== undefined
 							? arguments[1]
 							: {},
-					_ref45$looseTyped = _ref45.looseTyped,
-					looseTyped = _ref45$looseTyped === void 0 ? false : _ref45$looseTyped,
-					_ref45$stateTerms = _ref45.stateTerms,
-					stateTerms = _ref45$stateTerms === void 0 ? [] : _ref45$stateTerms,
-					_ref45$locations = _ref45.locations,
-					locations = _ref45$locations === void 0 ? [] : _ref45$locations,
-					_ref45$qualifiers = _ref45.qualifiers,
-					qualifiers = _ref45$qualifiers === void 0 ? [] : _ref45$qualifiers,
-					_ref45$standaloneTerm = _ref45.standaloneTerms,
+					_ref43$looseTyped = _ref43.looseTyped,
+					looseTyped = _ref43$looseTyped === void 0 ? false : _ref43$looseTyped,
+					_ref43$stateTerms = _ref43.stateTerms,
+					stateTerms = _ref43$stateTerms === void 0 ? [] : _ref43$stateTerms,
+					_ref43$locations = _ref43.locations,
+					locations = _ref43$locations === void 0 ? [] : _ref43$locations,
+					_ref43$qualifiers = _ref43.qualifiers,
+					qualifiers = _ref43$qualifiers === void 0 ? [] : _ref43$qualifiers,
+					_ref43$standaloneTerm = _ref43.standaloneTerms,
 					standaloneTerms =
-						_ref45$standaloneTerm === void 0 ? [] : _ref45$standaloneTerm,
-					_ref45$qualifiedTerms = _ref45.qualifiedTerms,
+						_ref43$standaloneTerm === void 0 ? [] : _ref43$standaloneTerm,
+					_ref43$qualifiedTerms = _ref43.qualifiedTerms,
 					qualifiedTerms =
-						_ref45$qualifiedTerms === void 0 ? [] : _ref45$qualifiedTerms;
+						_ref43$qualifiedTerms === void 0 ? [] : _ref43$qualifiedTerms;
 
 				autocomplete = autocomplete.toLowerCase().trim();
 				stateTerms = stateTerms.concat(text.autocomplete.stateTerms);
@@ -45961,8 +45967,8 @@
 			 * @return {HTMLElement} The label element, or null if none is found
 			 */
 
-			function getExplicitLabels(_ref46) {
-				var actualNode = _ref46.actualNode;
+			function getExplicitLabels(_ref44) {
+				var actualNode = _ref44.actualNode;
 
 				if (!actualNode.id) {
 					return [];
@@ -46176,8 +46182,8 @@
 			function findTextMethods(virtualNode) {
 				var nativeElementType = text.nativeElementType,
 					nativeTextMethods = text.nativeTextMethods;
-				var nativeType = nativeElementType.find(function(_ref47) {
-					var matches = _ref47.matches;
+				var nativeType = nativeElementType.find(function(_ref45) {
+					var matches = _ref45.matches;
 					return axe.commons.matches(virtualNode, matches);
 				}); // Use concat because namingMethods can be a string or an array of strings
 
@@ -46200,8 +46206,8 @@
 				 * @param {VirtualNode} element
 				 * @return {String} value text
 				 */
-				valueText: function valueText(_ref48) {
-					var actualNode = _ref48.actualNode;
+				valueText: function valueText(_ref46) {
+					var actualNode = _ref46.actualNode;
 					return actualNode.value || '';
 				},
 
@@ -46210,8 +46216,8 @@
 				 * @param {VirtualNode} element
 				 * @return {String} default button text
 				 */
-				buttonDefaultText: function buttonDefaultText(_ref49) {
-					var actualNode = _ref49.actualNode;
+				buttonDefaultText: function buttonDefaultText(_ref47) {
+					var actualNode = _ref47.actualNode;
 					return defaultButtonValues[actualNode.type] || '';
 				},
 
@@ -46291,8 +46297,8 @@
 				}
 			};
 
-			function attrText(attr, _ref50) {
-				var actualNode = _ref50.actualNode;
+			function attrText(attr, _ref48) {
+				var actualNode = _ref48.actualNode;
 				return actualNode.getAttribute(attr) || '';
 			}
 			/**
@@ -46301,8 +46307,8 @@
 			 * @private
 			 */
 
-			function descendantText(nodeName, _ref51, context) {
-				var actualNode = _ref51.actualNode;
+			function descendantText(nodeName, _ref49, context) {
+				var actualNode = _ref49.actualNode;
 				nodeName = nodeName.toLowerCase(); // Prevent accidently getting the nested element, like:
 				// fieldset > fielset > legend (1st fieldset has no legend)
 
