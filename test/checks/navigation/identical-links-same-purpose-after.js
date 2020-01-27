@@ -8,7 +8,32 @@ describe('identical-links-same-purpose-after tests', function() {
 		fixture.innerHTML = '';
 	});
 
-	it('sets results of check result to `undefined` one of the native links do not have `urlProps`', function() {
+	it('returns results by clearing relatedNodes after ignoring nodes which has no data (or result is undefined)', function() {
+		var nodeOneData = {
+			data: null,
+			relatedNodes: ['nodeOne'],
+			result: undefined
+		};
+		var nodeTwoData = {
+			data: {
+				name: 'read more',
+				urlProps: { hostname: 'abc.com' }
+			},
+			relatedNodes: ['nodeTwo'],
+			result: true
+		};
+		var checkResults = [nodeOneData, nodeTwoData];
+
+		var results = check.after(checkResults);
+		assert.lengthOf(results, 1);
+
+		var result = results[0];
+		assert.deepEqual(result.data, nodeTwoData.data);
+		assert.deepEqual(result.relatedNodes, []);
+		assert.equal(result.result, true);
+	});
+
+	it('sets results of check result to `undefined` one of the native links do not have `urlProps` (and therefore removed as relatedNode)', function() {
 		var nodeOneData = {
 			data: {
 				name: 'read more',

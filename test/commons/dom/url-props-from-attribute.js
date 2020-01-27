@@ -3,6 +3,7 @@ describe('dom.urlPropsFromAttribute', function() {
 
 	var fixture = document.getElementById('fixture');
 	var queryFixture = axe.testUtils.queryFixture;
+	var isIE11 = axe.testUtils.isIE11;
 
 	afterEach(function() {
 		fixture.innerHTML = '';
@@ -28,15 +29,15 @@ describe('dom.urlPropsFromAttribute', function() {
 		assert.isUndefined(actual);
 	});
 
-	it('returns URL properties when `A` has empty `HREF`', function() {
+	it('returns URL properties when `A` with `HREF` (has port)', function() {
 		var vNode = queryFixture(
-			'<a id="target" href="">Follow us on Instagram</a>'
+			'<a id="target" href="http://localhost:9876/test/playground.html">Follow us on Instagram</a>'
 		);
 		var expected = {
-			filename: '',
-			hash: undefined,
+			filename: 'playground.html',
+			hash: '',
 			hostname: 'localhost',
-			pathname: '/test/commons',
+			pathname: '/test/',
 			port: '9876',
 			protocol: 'http:',
 			search: {}
@@ -48,17 +49,17 @@ describe('dom.urlPropsFromAttribute', function() {
 		assert.deepEqual(actual, expected);
 	});
 
-	it('returns URL properties for `A` with `HREF`', function() {
+	it('returns URL properties for `A` with `HREF` (having HTTPS protocol)', function() {
 		var vNode = queryFixture(
 			'<a id="target" href="https://facebook.com">follow us on Facebook</a>'
 		);
 		var expected = {
 			filename: '',
-			hash: undefined,
+			hash: '',
 			hostname: 'facebook.com',
-			pathname: '',
+			pathname: '/',
 			port: '',
-			protocol: 'https:',
+			protocol: 'http:',
 			search: {}
 		};
 		var actual = axe.commons.dom.urlPropsFromAttribute(
@@ -68,15 +69,38 @@ describe('dom.urlPropsFromAttribute', function() {
 		assert.deepEqual(actual, expected);
 	});
 
+	(isIE11 ? it.skip : it)(
+		'returns URL properties for `A` with `HREF` (having FTP protocol)',
+		function() {
+			var vNode = queryFixture(
+				'<a id="target" href="ftp://mywebsite.org">Navigate to My Website</a>'
+			);
+			var expected = {
+				filename: '',
+				hash: '',
+				hostname: 'mywebsite.org',
+				pathname: '/',
+				port: '',
+				protocol: 'ftp:',
+				search: {}
+			};
+			var actual = axe.commons.dom.urlPropsFromAttribute(
+				vNode.actualNode,
+				'href'
+			);
+			assert.deepEqual(actual, expected);
+		}
+	);
+
 	it('returns URL properties for `A` with `HREF` which has subdirectory and inline link', function() {
 		var vNode = queryFixture(
 			'<a id="target" href="http://mysite.com/directory/#anchor">Go to Issues</a>'
 		);
 		var expected = {
 			filename: '',
-			hash: undefined,
+			hash: '',
 			hostname: 'mysite.com',
-			pathname: '/directory',
+			pathname: '/directory/',
 			port: '',
 			protocol: 'http:',
 			search: {}
@@ -96,7 +120,7 @@ describe('dom.urlPropsFromAttribute', function() {
 			filename: '',
 			hash: '#!foo',
 			hostname: 'mysite.com',
-			pathname: '/directory',
+			pathname: '/directory/',
 			port: '',
 			protocol: 'http:',
 			search: {}
@@ -114,9 +138,9 @@ describe('dom.urlPropsFromAttribute', function() {
 		);
 		var expected = {
 			filename: '',
-			hash: undefined,
+			hash: '',
 			hostname: 'mysite.com',
-			pathname: '/search',
+			pathname: '/search/',
 			port: '',
 			protocol: 'http:',
 			search: {
@@ -132,19 +156,20 @@ describe('dom.urlPropsFromAttribute', function() {
 
 	it('returns URL properties for `A` with `HREF` which has multiple search query parameters', function() {
 		var vNode = queryFixture(
-			'<a id="target" href="http://mysite.com/search/?a=123&z=XYZ&name=Axe&version=1.2.3&values=[1,2,3]">Get list of foo bars</a>'
+			'<a id="target" href="http://mysite.com/search/?a=123&z=XYZ&name=Axe&branch=&version=1.2.3&values=[1,2,3]">Get list of foo bars</a>'
 		);
 		var expected = {
 			filename: '',
-			hash: undefined,
+			hash: '',
 			hostname: 'mysite.com',
-			pathname: '/search',
+			pathname: '/search/',
 			port: '',
 			protocol: 'http:',
 			search: {
 				a: '123',
 				z: 'XYZ',
 				name: 'Axe',
+				branch: '',
 				values: '[1,2,3]',
 				version: '1.2.3'
 			}
@@ -158,14 +183,14 @@ describe('dom.urlPropsFromAttribute', function() {
 
 	it('returns URL properties for `A` with `HREF` which has filename', function() {
 		var vNode = queryFixture(
-			'<a id="target" href="directory/widgets/calendar.html">Book tour</a>'
+			'<a id="target" href="http://mysite.com/directory/widgets/calendar.html">Book tour</a>'
 		);
 		var expected = {
 			filename: 'calendar.html',
-			hash: undefined,
-			hostname: 'localhost',
-			pathname: '/test/commons/directory/widgets',
-			port: '9876',
+			hash: '',
+			hostname: 'mysite.com',
+			pathname: '/directory/widgets/',
+			port: '',
 			protocol: 'http:',
 			search: {}
 		};
@@ -182,9 +207,9 @@ describe('dom.urlPropsFromAttribute', function() {
 		);
 		var expected = {
 			filename: '',
-			hash: undefined,
+			hash: '',
 			hostname: 'mysite.com',
-			pathname: '/directory',
+			pathname: '/directory/',
 			port: '',
 			protocol: 'http:',
 			search: {}
